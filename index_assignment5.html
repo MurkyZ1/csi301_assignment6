@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bank DApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<style>
+  :root{
+    --paper:#e9eeec; --card:#ffffff; --ink:#14221e; --muted:#5b6b66;
+    --green:#0f5c4d; --green-ink:#ffffff; --brass:#a97c20; --red:#9b2c2c;
+    --line:#c9d3cf; --ok:#0f5c4d; --warn:#8a6414;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"IBM Plex Sans Thai",system-ui,sans-serif;line-height:1.55}
+  header{background:var(--ink);color:#fff;padding:14px 20px;
+    display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+  .who{font-weight:500}
+  .who small{display:block;font-weight:400;opacity:.7}
+  button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid transparent;padding:10px 18px;font-weight:500}
+  button:focus-visible,input:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #connectBtn{background:transparent;color:#fff;border-color:#fff}
+  #connectBtn.on{border-color:#6fd3b8;color:#6fd3b8}
+  #logoutBtn{background:transparent;color:#f1b4b4;border-color:#f1b4b4}
+  main{max-width:640px;margin:32px auto;padding:0 16px}
+  .ledger{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .balance{padding:28px 24px;border-bottom:4px double var(--brass)}
+  .balance p{margin:0;color:var(--muted)}
+  .balance .amt{font-size:clamp(36px,9vw,56px);font-weight:700;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;color:var(--green)}
+  .balance .amt span{font-size:.4em;font-weight:500;color:var(--muted);margin-left:6px}
+  .balance .row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  #refreshBtn{background:transparent;border-color:var(--line);color:var(--ink);padding:6px 12px;font-size:14px}
+  .act{padding:24px}
+  label{display:block;font-weight:500;margin-bottom:6px}
+  input{width:100%;font:inherit;font-size:18px;padding:12px;border:1px solid var(--line);border-radius:6px;
+    font-variant-numeric:tabular-nums}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  #depositBtn{background:var(--green);color:var(--green-ink)}
+  #withdrawBtn{background:#fff;color:var(--red);border-color:var(--red)}
+  #status{margin:20px 0 0;padding:12px 14px;border-radius:6px;background:#f3f6f5;border-left:4px solid var(--line);min-height:48px}
+  #status.pending{border-color:var(--brass);background:#faf4e4}
+  #status.success{border-color:var(--ok);background:#e5f2ee}
+  #status.error{border-color:var(--red);background:#f8e8e8}
+  #status a{color:inherit}
+  .hist{margin-top:24px}
+  .hist h2{font-size:16px;margin:0 0 8px}
+  .hist ul{list-style:none;margin:0;padding:0;background:var(--card);border:1px solid var(--line);border-radius:10px}
+  .hist li{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .hist li:last-child{border:0}
+  .hist .empty{color:var(--muted);padding:12px 16px}
+  .dep{color:var(--green)} .wd{color:var(--red)}
+  footer{max-width:640px;margin:0 auto 40px;padding:0 16px;color:var(--muted);font-size:13px;word-break:break-all}
+  @media (prefers-reduced-motion:no-preference){button{transition:background .15s,color .15s}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="who">
+    รหัสนักศึกษา: <span id="sid"></span>
+    <small id="sname"></small>
+  </div>
+  <div><button id="connectBtn">Connect Wallet</button> <button id="logoutBtn" hidden>Disconnect</button></div>
+</header>
+
+<main>
+  <section class="ledger" aria-label="บัญชีธนาคาร">
+    <div class="balance">
+      <div class="row">
+        <p>ยอดคงเหลือของบัญชี <span id="acct">(ยังไม่ได้เชื่อมต่อ)</span></p>
+        <button id="refreshBtn" disabled>Check Balance</button>
+      </div>
+      <div class="amt"><span style="margin:0;font-size:inherit;color:inherit;font-weight:inherit" id="bal">–</span><span>ETH</span></div>
+    </div>
+    <div class="act">
+      <label for="amount">จำนวนเงิน (ETH)</label>
+      <input id="amount" type="number" inputmode="decimal" min="0" step="any" placeholder="เช่น 0.01">
+      <div class="btns">
+        <button id="depositBtn" disabled>Deposit</button>
+        <button id="withdrawBtn" disabled>Withdraw</button>
+      </div>
+      <div id="status" role="status" aria-live="polite">เชื่อมต่อ MetaMask เพื่อเริ่มใช้งาน</div>
+    </div>
+  </section>
+
+  <section class="hist">
+    <h2>รายการในเซสชันนี้</h2>
+    <ul id="history"><li class="empty">ยังไม่มีรายการ</li></ul>
+  </section>
+</main>
+
+<footer>Contract: <span id="caddr"></span> · Network: <span id="netname">–</span></footer>
+
+<script>
+/* ====== แก้ค่าตรงนี้ก่อนนำขึ้น GitHub Pages ====== */
+const STUDENT_ID   = "66102316";            // <- ใส่รหัสนักศึกษา
+const STUDENT_NAME = "คิรากร สุวรรณโกสุม";          // <- ใส่ชื่อ-สกุล
+const CONTRACT_ADDRESS = "0xd943ABb1cE2b884FE06Fa3A2c7F6723F0724E1Ea"; // <- address หลัง Deploy
+const CHAIN_ID = 11155111;                  // Sepolia (ใส่ null ถ้าใช้ network อื่น/ไม่ต้องบังคับ)
+/* ================================================= */
+
+const ABI = [
+  "function deposit() payable",
+  "function withdraw(uint256 amount)",
+  "function checkBlance() view returns (uint256 balance)",
+  "event Deposit(address indexed owner, uint256 amount)",
+  "event Withdraw(address indexed owner, uint256 amount)"
+];
+
+const $ = id => document.getElementById(id);
+let provider, signer, bank, account;
+
+$("sid").textContent = STUDENT_ID;
+$("sname").textContent = STUDENT_NAME;
+$("caddr").textContent = CONTRACT_ADDRESS;
+
+function setStatus(msg, kind = ""){
+  const s = $("status"); s.className = kind; s.innerHTML = msg;
+}
+function friendlyError(e){
+  const text = (e.reason || e.shortMessage || e.message || "").toString();
+  if (e.code === "ACTION_REJECTED" || e.code === 4001) return "คุณยกเลิกธุรกรรมใน MetaMask";
+  if (text.includes("not enough money")) return "ยอดเงินในบัญชีไม่เพียงพอ (not enough money)";
+  if (text.includes("Deposit money is zero")) return "จำนวนเงินฝากต้องมากกว่า 0";
+  if (text.includes("insufficient funds")) return "ETH ในกระเป๋าไม่พอสำหรับจำนวนเงินและค่า Gas";
+  return text.slice(0, 200) || "เกิดข้อผิดพลาด";
+}
+function setEnabled(on){
+  ["depositBtn","withdrawBtn","refreshBtn"].forEach(id => $(id).disabled = !on);
+}
+function parseAmount(){
+  const v = $("amount").value.trim();
+  if (!v || Number(v) <= 0) throw new Error("กรุณากรอกจำนวนเงินที่มากกว่า 0");
+  return ethers.parseEther(v);
+}
+function addHistory(type, wei, hash){
+  const ul = $("history");
+  if (ul.querySelector(".empty")) ul.innerHTML = "";
+  const li = document.createElement("li");
+  const label = type === "Deposit" ? "ฝาก" : "ถอน";
+  li.innerHTML = `<span class="${type==="Deposit"?"dep":"wd"}">${label}</span>
+    <span>${ethers.formatEther(wei)} ETH</span>`;
+  ul.prepend(li);
+}
+
+/* --- 1) เชื่อมต่อ MetaMask --- */
+async function connect(){
+  if (!window.ethereum){
+    setStatus("ไม่พบ MetaMask — กรุณาติดตั้งส่วนขยาย MetaMask แล้วรีโหลดหน้านี้", "error");
+    return;
+  }
+  try{
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+
+    if (CHAIN_ID){
+      const net = await provider.getNetwork();
+      if (Number(net.chainId) !== CHAIN_ID){
+        try{
+          await provider.send("wallet_switchEthereumChain", [{ chainId: "0x" + CHAIN_ID.toString(16) }]);
+          provider = new ethers.BrowserProvider(window.ethereum);
+        }catch(_){
+          setStatus("กรุณาสลับ MetaMask ไปยัง network ที่ Deploy Contract ไว้ (chainId " + CHAIN_ID + ")", "error");
+          return;
+        }
+      }
+    }
+    signer  = await provider.getSigner();
+    account = await signer.getAddress();
+    const net = await provider.getNetwork();
+
+    $("connectBtn").textContent = account.slice(0,6) + "…" + account.slice(-4);
+    $("connectBtn").classList.add("on");
+    $("logoutBtn").hidden = false;
+    $("acct").textContent = "(" + account.slice(0,6) + "…" + account.slice(-4) + ")";
+    $("netname").textContent = net.name + " (" + net.chainId + ")";
+
+    /* --- 2) เชื่อมต่อ Smart Contract (ต้องมี address จริง) --- */
+    if (!ethers.isAddress(CONTRACT_ADDRESS)){
+      setStatus("เชื่อมต่อกระเป๋าสำเร็จ แต่ยังใช้งาน Contract ไม่ได้ — ใส่ CONTRACT_ADDRESS ใน index.html ก่อน", "pending");
+      return;
+    }
+    const code = await provider.getCode(CONTRACT_ADDRESS);
+    if (code === "0x"){
+      setStatus("ไม่พบ Contract ที่ address นี้บน network ปัจจุบัน — ตรวจสอบว่า MetaMask อยู่ network เดียวกับที่ Deploy (เช่น Sepolia) และ address ถูกต้อง", "error");
+      return;
+    }
+    bank = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    setEnabled(true);
+    setStatus("เชื่อมต่อสำเร็จ", "success");
+    await checkBalance();
+  }catch(e){
+    setStatus(friendlyError(e), "error");
+  }
+}
+
+/* --- CheckBalance (view: ไม่เสีย Gas) --- */
+async function checkBalance(){
+  try{
+    const wei = await bank.checkBlance();   // ชื่อฟังก์ชันตาม contract (สะกด checkBlance)
+    $("bal").textContent = ethers.formatEther(wei);
+  }catch(e){
+    setStatus("อ่านยอดเงินไม่ได้: " + friendlyError(e) + " (ตรวจสอบ Contract address และ network)", "error");
+  }
+}
+
+/* --- Deposit / Withdraw --- */
+async function send(type){
+  try{
+    const amt = parseAmount();
+    setEnabled(false);
+    setStatus("Transaction pending… กรุณายืนยันใน MetaMask", "pending");
+    const tx = type === "Deposit"
+      ? await bank.deposit({ value: amt })   // ส่งเงินผ่าน value ไม่ใช่ parameter
+      : await bank.withdraw(amt);
+    setStatus("กำลังรอการยืนยันบนบล็อกเชน… <code>" + tx.hash.slice(0,12) + "…</code>", "pending");
+    await tx.wait();
+    addHistory(type, amt);
+    $("amount").value = "";
+    await checkBalance();
+    setStatus((type === "Deposit" ? "ฝากเงิน" : "ถอนเงิน") + "สำเร็จ! " + ethers.formatEther(amt) + " ETH", "success");
+  }catch(e){
+    setStatus(friendlyError(e), "error");
+  }finally{
+    if (bank) setEnabled(true);
+  }
+}
+
+async function disconnect(){
+  try{
+    await window.ethereum.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+  }catch(_){}
+  try{ localStorage.setItem("bankLoggedOut", "1"); }catch(_){}
+  provider = signer = bank = account = null;
+  setEnabled(false);
+  $("connectBtn").textContent = "Connect Wallet";
+  $("connectBtn").classList.remove("on");
+  $("logoutBtn").hidden = true;
+  $("acct").textContent = "(ยังไม่ได้เชื่อมต่อ)";
+  $("bal").textContent = "–";
+  $("netname").textContent = "–";
+  setStatus("ออกจากระบบแล้ว กด Connect Wallet เพื่อเชื่อมต่ออีกครั้ง");
+}
+$("connectBtn").onclick  = () => { try{ localStorage.removeItem("bankLoggedOut"); }catch(_){} connect(); };
+$("logoutBtn").onclick   = disconnect;
+$("refreshBtn").onclick  = async () => { await checkBalance(); setStatus("อัปเดตยอดเงินแล้ว", "success"); };
+$("depositBtn").onclick  = () => send("Deposit");
+$("withdrawBtn").onclick = () => send("Withdraw");
+
+/* เชื่อมต่ออัตโนมัติ ถ้าเคยอนุญาตเว็บนี้ใน MetaMask แล้ว (ไม่เด้งหน้าต่างถาม) */
+window.addEventListener("load", async () => {
+  if (!window.ethereum) return;
+  try{
+    const accs = await window.ethereum.request({ method: "eth_accounts" });
+    let out = null;
+    try{ out = localStorage.getItem("bankLoggedOut"); }catch(_){}
+    if (accs.length > 0 && !out) connect();
+  }catch(_){}
+});
+
+if (window.ethereum){
+  window.ethereum.on("accountsChanged", () => location.reload());
+  window.ethereum.on("chainChanged",    () => location.reload());
+}
+</script>
+</body>
+</html>
